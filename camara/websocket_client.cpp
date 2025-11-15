@@ -121,13 +121,17 @@ static void handle_detections(JsonArrayConst arr) {
     // Asigna en salida
     out[valid].x = x; out[valid].y = y; out[valid].w = w; out[valid].h = h;
 
-    // Acepta "label" o "class"
-    if (o.containsKey("label"))        out[valid].label = o["label"].as<const char*>();
-    else if (o.containsKey("class"))   out[valid].label = o["class"].as<const char*>();
-    else                               out[valid].label = "obj";
+    // Acepta "label" o "class" - OPTIMIZADO: strncpy seguro (evita corrupción heap)
+    const char* labelStr = nullptr;
+    if (o.containsKey("label"))        labelStr = o["label"].as<const char*>();
+    else if (o.containsKey("class"))   labelStr = o["class"].as<const char*>();
+    else                               labelStr = "obj";
+
+    strncpy(out[valid].label, labelStr, sizeof(out[valid].label) - 1);
+    out[valid].label[sizeof(out[valid].label) - 1] = '\0';  // Null-terminate
 
     Serial.printf("[WS] det[%d]: x=%d y=%d w=%d h=%d label=%s\n",
-                  valid, x, y, w, h, out[valid].label.c_str());
+                  valid, x, y, w, h, out[valid].label);
     valid++;
   }
 

@@ -2,8 +2,9 @@
 #include <Arduino.h>
 
 // Estructura de detección recibida del servidor
+// OPTIMIZADO: char[] fijo en lugar de String para evitar corrupción de heap
 struct Deteccion {
-    String label;
+    char label[32];  // Buffer fijo (antes String dinámico)
     int x;
     int y;
     int w;
