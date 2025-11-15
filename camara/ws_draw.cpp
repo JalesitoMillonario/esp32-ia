@@ -10,7 +10,12 @@ static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 static Deteccion gDet[10];
 static int gDetCount = 0;
 
-static uint8_t* gFrame = nullptr;
+// OPTIMIZADO: Double buffer en PSRAM (sin malloc/free)
+#define FRAME_SIZE (240 * 240 * 2)  // 115200 bytes RGB565
+static uint8_t* gFrameBuffer[2] = {nullptr, nullptr};  // 2 buffers
+static int gWriteBuffer = 0;
+static int gReadBuffer = 0;
+static bool gFrameReady = false;
 
 // Esta cola te la dejo por compat (si la usas)
 static QueueHandle_t gDetectionQueue = nullptr;
@@ -18,8 +23,11 @@ static QueueHandle_t gDetectionQueue = nullptr;
 // ============ Helpers de dibujo ============
 static void drawFrame(uint8_t* buf){
     if(!buf) return;
-    // Ajusta el tamaño si usas otro (tu camera_init usa FRAMESIZE_240X240 RGB565)
+    // OPTIMIZADO: Usar startWrite/endWrite para transferencia DMA más rápida
+    tft.startWrite();
+    tft.setSwapBytes(true);  // RGB565 byte swap si es necesario
     tft.pushImage(0, 0, 240, 240, (uint16_t*)buf);
+    tft.endWrite();
 }
 
 
@@ -55,6 +63,18 @@ static void drawDetections(){
 
 // ============ API ============
 void ws_draw_init(){
+    // OPTIMIZADO: Alojar buffers en PSRAM (double buffer)
+    if(psramFound()) {
+        gFrameBuffer[0] = (uint8_t*)ps_malloc(FRAME_SIZE);
+        gFrameBuffer[1] = (uint8_t*)ps_malloc(FRAME_SIZE);
+        if(gFrameBuffer[0] && gFrameBuffer[1]) {
+            Serial.printf("[ws_draw] Double buffer en PSRAM OK (%d bytes x2)\n", FRAME_SIZE);
+        } else {
+            Serial.println("[ws_draw] ERROR: No se pudo alojar buffers en PSRAM");
+        }
+    } else {
+        Serial.println("[ws_draw] ADVERTENCIA: PSRAM no encontrado!");
+    }
     Serial.println("ws_draw_init: inicializado");
 }
 
@@ -64,20 +84,24 @@ void start_ws_task(QueueHandle_t queue){
 }
 
 void ws_draw_set_frame(uint8_t* newFrame){
-    if(!newFrame) return;
-    portENTER_CRITICAL(&mux);
-    if(gFrame) free(gFrame);
-    gFrame = newFrame;          // Propiedad pasa a ws_draw
-    portEXIT_CRITICAL(&mux);
-    Serial.println("ws_draw_set_frame: frame actualizado");
+    // DEPRECATED: Mantener por compatibilidad pero no se usa
+    if(newFrame) free(newFrame);
 }
 
-// OPTIMIZADO: Dibuja directamente sin hacer copia (ahorra ~115KB de RAM)
+// OPTIMIZADO: Copia rápida a double buffer (NO bloquea dibujando)
 void ws_draw_set_frame_direct(const uint8_t* cameraBuf, size_t len){
-    if(!cameraBuf || len == 0) return;
-    // Dibuja inmediatamente sin hacer copia
-    drawFrame((uint8_t*)cameraBuf);
-    drawDetections();
+    if(!cameraBuf || len == 0 || !gFrameBuffer[0] || !gFrameBuffer[1]) return;
+    if(len > FRAME_SIZE) len = FRAME_SIZE;
+
+    // Copia rápida al buffer de escritura (mínimo tiempo en sección crítica)
+    portENTER_CRITICAL(&mux);
+    memcpy(gFrameBuffer[gWriteBuffer], cameraBuf, len);
+    gFrameReady = true;
+    // Intercambiar buffers
+    int temp = gWriteBuffer;
+    gWriteBuffer = gReadBuffer;
+    gReadBuffer = temp;
+    portEXIT_CRITICAL(&mux);
 }
 
 // --- REEMPLAZA SOLO ESTA FUNCIÓN ---
@@ -100,15 +124,15 @@ void ws_draw_loop(){
     // Mantener WS vivo
     websocket_loop();
 
-    // Intercambio atómico del frame
-    uint8_t* local = nullptr;
+    // OPTIMIZADO: Dibujar desde el buffer de lectura (sin free)
+    bool ready = false;
     portENTER_CRITICAL(&mux);
-    if(gFrame){ local = gFrame; gFrame = nullptr; }
+    ready = gFrameReady;
+    if(ready) gFrameReady = false;
     portEXIT_CRITICAL(&mux);
 
-    if(local){
-        drawFrame(local);
+    if(ready && gFrameBuffer[gReadBuffer]){
+        drawFrame(gFrameBuffer[gReadBuffer]);
         drawDetections();
-        free(local);
     }
 }
