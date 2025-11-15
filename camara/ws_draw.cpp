@@ -72,6 +72,14 @@ void ws_draw_set_frame(uint8_t* newFrame){
     Serial.println("ws_draw_set_frame: frame actualizado");
 }
 
+// OPTIMIZADO: Dibuja directamente sin hacer copia (ahorra ~115KB de RAM)
+void ws_draw_set_frame_direct(const uint8_t* cameraBuf, size_t len){
+    if(!cameraBuf || len == 0) return;
+    // Dibuja inmediatamente sin hacer copia
+    drawFrame((uint8_t*)cameraBuf);
+    drawDetections();
+}
+
 // --- REEMPLAZA SOLO ESTA FUNCIÓN ---
 void ws_draw_update_detecciones(Deteccion* arr, int count){
     // Protege el estado compartido (gDet/gDetCount)

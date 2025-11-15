@@ -21,7 +21,25 @@ SemaphoreHandle_t captureMutex;
 void setup() {
     Serial.begin(115200);
 
-    // Inicialización pantalla (como lo tenías)
+    // OPTIMIZADO: Mostrar memoria disponible al inicio
+    Serial.printf("\n=== DIAGNÓSTICO DE MEMORIA ===\n");
+    Serial.printf("Heap libre: %u bytes\n", ESP.getFreeHeap());
+    Serial.printf("PSRAM libre: %u bytes\n", ESP.getFreePsram());
+    Serial.printf("PSRAM total: %u bytes\n", ESP.getPsramSize());
+
+    // OPTIMIZADO: Inicializar cámara PRIMERO (necesita más memoria)
+    Serial.println("\n📷 Inicializando cámara...");
+    if (!camera_init()) {
+        Serial.println("❌ Error al iniciar la cámara");
+        Serial.printf("Heap libre después del fallo: %u bytes\n", ESP.getFreeHeap());
+        Serial.printf("PSRAM libre después del fallo: %u bytes\n", ESP.getFreePsram());
+        while (true) delay(1000);
+    }
+    Serial.println("✅ Cámara inicializada");
+    Serial.printf("Heap libre: %u bytes\n", ESP.getFreeHeap());
+    Serial.printf("PSRAM libre: %u bytes\n", ESP.getFreePsram());
+
+    // Inicialización pantalla
     tft.begin();
     tft.setRotation(4);
     tft.fillScreen(TFT_BLACK);
@@ -31,7 +49,7 @@ void setup() {
     tft.print("Iniciando...");
 
     // Conexión WiFi
-    Serial.print("Conectando WiFi");
+    Serial.print("\n📡 Conectando WiFi");
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
@@ -42,21 +60,14 @@ void setup() {
 
     tft.fillScreen(TFT_BLACK);
     tft.setCursor(20, 120);
-    tft.print("✅ WiFi conectado");
+    tft.print("WiFi OK");
 
-    // Inicializar colas y mutex
-    captureQueue   = xQueueCreate(2, sizeof(uint8_t*));     // si no la usas, puedes omitirla
-    detectionQueue = xQueueCreate(4, sizeof(Deteccion*));   // *** importante: detecciones ***
+    // Inicializar colas y mutex (OPTIMIZADO: reducir tamaño)
+    captureQueue   = xQueueCreate(1, sizeof(uint8_t*));     // Reducido de 2 a 1
+    detectionQueue = xQueueCreate(2, sizeof(Deteccion*));   // Reducido de 4 a 2
     captureMutex   = xSemaphoreCreateMutex();
 
-    // Inicializar cámara (tu implementación)
-    if (!camera_init()) {
-        Serial.println("❌ Error al iniciar la cámara");
-        tft.fillScreen(TFT_RED);
-        tft.setCursor(20, 120);
-        tft.print("Camara fallida!");
-        while (true) delay(1000);
-    }
+    Serial.printf("Heap libre después de colas: %u bytes\n", ESP.getFreeHeap());
 
     // Inicializar WebSocket y capa de dibujo
     websocket_init("3b6bec75bba4.ngrok-free.app", 443, "/ws", true);

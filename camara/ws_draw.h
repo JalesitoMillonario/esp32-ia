@@ -22,5 +22,8 @@ void ws_draw_update_detecciones(Deteccion* detecciones, int count);
 // Entregar un frame a ws_draw (ws_draw toma propiedad y lo libera tras dibujar)
 void ws_draw_set_frame(uint8_t* cameraBuf);
 
+// OPTIMIZADO: Usar frame directamente sin copia (más eficiente, usa el buffer de la cámara)
+void ws_draw_set_frame_direct(const uint8_t* cameraBuf, size_t len);
+
 // Compat: tu setup() llama a esto; la dejo como stub (guarda la cola si la necesitas)
 void start_ws_task(QueueHandle_t queue);

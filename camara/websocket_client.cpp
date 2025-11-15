@@ -140,7 +140,8 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       Serial.write(payload, length);
       Serial.println();
 
-      DynamicJsonDocument doc(4096);
+      // OPTIMIZADO: Reducir buffer JSON de 4096 a 2048 bytes (suficiente para detecciones)
+      DynamicJsonDocument doc(2048);
       DeserializationError err = deserializeJson(doc, payload, length);
       if (err) {
         Serial.printf("[WS] JSON error: %s\n", err.c_str());
