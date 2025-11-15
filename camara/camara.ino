@@ -73,12 +73,22 @@ void setup() {
     websocket_init("3b6bec75bba4.ngrok-free.app", 443, "/ws", true);
     ws_draw_init();
 
-    // Crear tareas asincrónicas (tus mismas llamadas)
+    // NUEVO: Iniciar tarea asíncrona de WebSocket (evita bloqueos)
+    websocket_start_task();
+    Serial.printf("Heap libre después de WebSocket: %u bytes\n", ESP.getFreeHeap());
+
+    // Crear tareas asincrónicas
     create_camera_task(captureQueue, detectionQueue, captureMutex);
-    start_ws_task(detectionQueue);  // compat: la función existe (stub) y guarda la cola si la quieres usar luego
+    start_ws_task(detectionQueue);  // compat
+
+    Serial.printf("\n✅ Sistema inicializado - Heap final: %u bytes\n", ESP.getFreeHeap());
+    Serial.printf("PSRAM final: %u bytes\n", ESP.getFreePsram());
 }
 
 void loop() {
     // Mantiene WS y dibuja el último frame + detecciones
     ws_draw_loop();
+
+    // OPTIMIZADO: Pequeño delay para no saturar el core (mejora estabilidad)
+    delay(10);  // 10ms = máx 100 FPS de dibujo (suficiente para 15 FPS de cámara)
 }

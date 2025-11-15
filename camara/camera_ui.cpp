@@ -21,24 +21,37 @@ void create_camera_task(QueueHandle_t captureQueue, QueueHandle_t detectionQueue
         captureQueueLocal   = captureQueue;
         detectionQueueLocal = detectionQueue;
         captureMutexLocal   = captureMutex;
-        xTaskCreate(loopTask_camera, "loopTask_camera", 8192, nullptr, 1, &cameraTaskHandle);
+
+        // OPTIMIZADO: Mayor stack (12KB) y prioridad alta (5) para evitar bloqueos
+        xTaskCreatePinnedToCore(
+            loopTask_camera,
+            "loopTask_camera",
+            12288,      // Stack aumentado (8KB -> 12KB)
+            nullptr,
+            5,          // Prioridad ALTA (1 -> 5, mayor que WiFi/WS)
+            &cameraTaskHandle,
+            1           // Core 1 (separado de WiFi que está en core 0)
+        );
     }
 }
 
 void loopTask_camera(void *pvParameters) {
-    const int frameDelay = 66; // ~15 FPS
+    const int frameDelay = 66; // ~15 FPS (~100ms para estabilidad extra)
+
     while(camera_task_flag) {
         fb = esp_camera_fb_get();
         if(fb) {
-            // OPTIMIZADO: Usar el buffer de la cámara directamente para display
-            // El WebSocket hará su propia copia internamente si es necesario
+            // 1. Copiar RGB565 a display (rápido, double buffer)
             ws_draw_set_frame_direct(fb->buf, fb->len);
 
-            // Enviar frame por WebSocket (la biblioteca hace copia si es necesario)
-            websocket_send_frame(fb->buf, fb->len);
+            // 2. Enviar RGB565 por WebSocket de forma ASÍNCRONA (no bloquea)
+            websocket_send_frame_async(fb->buf, fb->len);
 
+            // 3. Retornar buffer a cámara inmediatamente
             esp_camera_fb_return(fb);
         }
+
+        // Feed watchdog implícitamente con vTaskDelay
         vTaskDelay(frameDelay / portTICK_PERIOD_MS);
     }
     vTaskDelete(cameraTaskHandle);

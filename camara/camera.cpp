@@ -25,10 +25,10 @@ int camera_init(void) {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;  // Aumentar frecuencia para mejor rendimiento
   config.frame_size = FRAMESIZE_240X240;
-  config.pixel_format = PIXFORMAT_RGB565;
+  config.pixel_format = PIXFORMAT_RGB565;  // RGB565 (ESTABLE)
   config.grab_mode = CAMERA_GRAB_LATEST;
   config.fb_location = CAMERA_FB_IN_PSRAM;  // Requiere PSRAM habilitado
-  config.jpeg_quality = 12;  // No se usa con RGB565, pero optimizado
+  config.jpeg_quality = 12;  // No se usa con RGB565
   config.fb_count = 1;  // OPTIMIZADO: Reducir de 2 a 1 buffer (-115KB)
 
   esp_err_t err = esp_camera_init(&config);

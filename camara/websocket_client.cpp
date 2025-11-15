@@ -2,8 +2,20 @@
 #include "ws_draw.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 
 WebSocketsClient webSocket;  // Definición única
+
+// NUEVO: Cola para envío asíncrono de frames (evita bloqueos)
+#define WS_QUEUE_SIZE 2
+static QueueHandle_t wsQueue = nullptr;
+static TaskHandle_t wsTaskHandle = nullptr;
+
+// Buffer estático en PSRAM para copias de frames
+static uint8_t* wsSendBuffer = nullptr;
+#define WS_BUFFER_SIZE (240 * 240 * 2)
 
 // ============ Helpers ============
 static void hexdump(const uint8_t* p, size_t len) {
@@ -109,13 +121,17 @@ static void handle_detections(JsonArrayConst arr) {
     // Asigna en salida
     out[valid].x = x; out[valid].y = y; out[valid].w = w; out[valid].h = h;
 
-    // Acepta "label" o "class"
-    if (o.containsKey("label"))        out[valid].label = o["label"].as<const char*>();
-    else if (o.containsKey("class"))   out[valid].label = o["class"].as<const char*>();
-    else                               out[valid].label = "obj";
+    // Acepta "label" o "class" - OPTIMIZADO: strncpy seguro (evita corrupción heap)
+    const char* labelStr = nullptr;
+    if (o.containsKey("label"))        labelStr = o["label"].as<const char*>();
+    else if (o.containsKey("class"))   labelStr = o["class"].as<const char*>();
+    else                               labelStr = "obj";
+
+    strncpy(out[valid].label, labelStr, sizeof(out[valid].label) - 1);
+    out[valid].label[sizeof(out[valid].label) - 1] = '\0';  // Null-terminate
 
     Serial.printf("[WS] det[%d]: x=%d y=%d w=%d h=%d label=%s\n",
-                  valid, x, y, w, h, out[valid].label.c_str());
+                  valid, x, y, w, h, out[valid].label);
     valid++;
   }
 
@@ -216,4 +232,68 @@ void websocket_send_frame(const uint8_t* data, size_t len) {
   if (!data || !len) return;
   if (!webSocket.isConnected()) return;
   webSocket.sendBIN(data, len);
+}
+
+// NUEVO: Tarea asíncrona para enviar frames por WebSocket
+static void websocketSendTask(void* pvParameters) {
+  frame_item_t frame;
+
+  while(true) {
+    // Esperar frame en cola (bloquea sin consumir CPU)
+    if(xQueueReceive(wsQueue, &frame, portMAX_DELAY) == pdTRUE) {
+      if(webSocket.isConnected() && frame.data && frame.len > 0) {
+        // Enviar frame (puede tardar, pero no bloquea la cámara)
+        webSocket.sendBIN(frame.data, frame.len);
+      }
+    }
+    // Feed watchdog cada iteración
+    vTaskDelay(1 / portTICK_PERIOD_MS);
+  }
+}
+
+// NUEVO: Envío asíncrono (no bloqueante)
+void websocket_send_frame_async(const uint8_t* data, size_t len) {
+  if(!data || !len || !wsQueue || !wsSendBuffer) return;
+  if(len > WS_BUFFER_SIZE) len = WS_BUFFER_SIZE;
+
+  // Copia rápida a buffer estático en PSRAM
+  memcpy(wsSendBuffer, data, len);
+
+  // Enviar referencia a la cola (no bloqueante)
+  frame_item_t frame = {wsSendBuffer, len};
+  xQueueSend(wsQueue, &frame, 0);  // 0 = no esperar si cola llena (drop frame)
+}
+
+// NUEVO: Iniciar tarea de WebSocket
+void websocket_start_task() {
+  if(!wsTaskHandle) {
+    // Crear buffer en PSRAM
+    if(psramFound()) {
+      wsSendBuffer = (uint8_t*)ps_malloc(WS_BUFFER_SIZE);
+      if(!wsSendBuffer) {
+        Serial.println("[WS] ERROR: No se pudo alojar buffer en PSRAM");
+        return;
+      }
+    }
+
+    // Crear cola
+    wsQueue = xQueueCreate(WS_QUEUE_SIZE, sizeof(frame_item_t));
+    if(!wsQueue) {
+      Serial.println("[WS] ERROR: No se pudo crear cola");
+      return;
+    }
+
+    // Crear tarea con prioridad baja (no interferir con cámara)
+    xTaskCreatePinnedToCore(
+      websocketSendTask,
+      "websocketSend",
+      8192,        // Stack
+      nullptr,
+      1,           // Prioridad baja
+      &wsTaskHandle,
+      0            // Core 0 (WiFi corre en core 0)
+    );
+
+    Serial.println("[WS] Tarea asíncrona iniciada");
+  }
 }
