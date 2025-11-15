@@ -3,7 +3,7 @@
 #include "display.h"        // Tu driver TFT (tft.pushImage / drawRect / etc.)
 #include <Arduino.h>
 #include <freertos/queue.h>
-#include "esp_jpg_decode.h"  // Decodificador JPEG por hardware
+#include "img_converters.h"  // Conversor JPEG de esp32-camera
 
 // ============ Estado ============
 static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -109,21 +109,24 @@ void ws_draw_set_frame_direct(const uint8_t* cameraBuf, size_t len){
 void ws_draw_set_frame_jpeg(const uint8_t* jpegBuf, size_t jpegLen){
     if(!jpegBuf || jpegLen == 0 || !gFrameBuffer[0] || !gFrameBuffer[1]) return;
 
-    // Decodificar JPEG a RGB565 por hardware (muy rápido)
+    // Decodificar JPEG a RGB565 usando esp32-camera (muy rápido)
     uint8_t* rgb565_buf = nullptr;
-    uint32_t rgb565_len = 0;
+    size_t rgb565_len = 0;
 
-    esp_err_t err = esp_jpg_decode(jpegLen, JPG_SCALE_NONE, jpegBuf,
-                                    FRAME_SIZE, &rgb565_buf, &rgb565_len);
+    bool ok = jpg2rgb565(jpegBuf, jpegLen, rgb565_buf, JPG_SCALE_NONE);
 
-    if(err != ESP_OK || !rgb565_buf) {
-        Serial.printf("[ws_draw] Error decodificando JPEG: 0x%x\n", err);
+    if(!ok || !rgb565_buf) {
+        Serial.println("[ws_draw] Error decodificando JPEG");
+        if(rgb565_buf) free(rgb565_buf);
         return;
     }
 
+    // El tamaño debe ser 240*240*2 = 115200 bytes
+    rgb565_len = 240 * 240 * 2;
+
     // Copiar RGB565 decodificado al buffer de escritura
     portENTER_CRITICAL(&mux);
-    memcpy(gFrameBuffer[gWriteBuffer], rgb565_buf, rgb565_len > FRAME_SIZE ? FRAME_SIZE : rgb565_len);
+    memcpy(gFrameBuffer[gWriteBuffer], rgb565_buf, rgb565_len);
     gFrameReady = true;
     // Intercambiar buffers
     int temp = gWriteBuffer;
