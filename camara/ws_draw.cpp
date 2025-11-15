@@ -109,21 +109,25 @@ void ws_draw_set_frame_direct(const uint8_t* cameraBuf, size_t len){
 void ws_draw_set_frame_jpeg(const uint8_t* jpegBuf, size_t jpegLen){
     if(!jpegBuf || jpegLen == 0 || !gFrameBuffer[0] || !gFrameBuffer[1]) return;
 
-    // Decodificar JPEG a RGB565 usando esp32-camera (muy rápido)
-    uint8_t* rgb565_buf = nullptr;
+    // Pre-asignar buffer para RGB565 decodificado (115200 bytes)
+    size_t rgb565_len = 240 * 240 * 2;
+    uint8_t* rgb565_buf = (uint8_t*)malloc(rgb565_len);
 
-    // CRÍTICO: Pasar &rgb565_buf (referencia), no rgb565_buf
-    bool ok = jpg2rgb565(jpegBuf, jpegLen, &rgb565_buf, JPG_SCALE_NONE);
-
-    if(!ok || !rgb565_buf) {
-        Serial.println("[ws_draw] Error decodificando JPEG");
-        if(rgb565_buf) free(rgb565_buf);
+    if(!rgb565_buf) {
+        Serial.println("[ws_draw] Error: no hay RAM para decodificar JPEG");
         return;
     }
 
-    // Copiar RGB565 decodificado al buffer de escritura
-    size_t rgb565_len = 240 * 240 * 2;
+    // Decodificar JPEG a RGB565 (buffer pre-asignado)
+    bool ok = jpg2rgb565(jpegBuf, jpegLen, rgb565_buf, JPG_SCALE_NONE);
 
+    if(!ok) {
+        Serial.println("[ws_draw] Error decodificando JPEG");
+        free(rgb565_buf);
+        return;
+    }
+
+    // Copiar RGB565 decodificado al double buffer
     portENTER_CRITICAL(&mux);
     memcpy(gFrameBuffer[gWriteBuffer], rgb565_buf, rgb565_len);
     gFrameReady = true;
@@ -133,7 +137,7 @@ void ws_draw_set_frame_jpeg(const uint8_t* jpegBuf, size_t jpegLen){
     gReadBuffer = temp;
     portEXIT_CRITICAL(&mux);
 
-    // Liberar buffer temporal del decodificador
+    // Liberar buffer temporal
     free(rgb565_buf);
 }
 
