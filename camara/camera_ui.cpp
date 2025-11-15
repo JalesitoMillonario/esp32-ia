@@ -30,15 +30,12 @@ void loopTask_camera(void *pvParameters) {
     while(camera_task_flag) {
         fb = esp_camera_fb_get();
         if(fb) {
-            // 1) Enviar frame por WebSocket (copia interna en su task)
-            websocket_send_frame(fb->buf, fb->len);
+            // OPTIMIZADO: Usar el buffer de la cámara directamente para display
+            // El WebSocket hará su propia copia internamente si es necesario
+            ws_draw_set_frame_direct(fb->buf, fb->len);
 
-            // 2) Mostrar en TFT: entrega copia a ws_draw (ws_draw la libera)
-            uint8_t* localFrame = (uint8_t*)malloc(fb->len);
-            if(localFrame) {
-                memcpy(localFrame, fb->buf, fb->len);
-                ws_draw_set_frame(localFrame);
-            }
+            // Enviar frame por WebSocket (la biblioteca hace copia si es necesario)
+            websocket_send_frame(fb->buf, fb->len);
 
             esp_camera_fb_return(fb);
         }
