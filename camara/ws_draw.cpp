@@ -25,7 +25,7 @@ static void drawFrame(uint8_t* buf){
     if(!buf) return;
     // OPTIMIZADO: Usar startWrite/endWrite para transferencia DMA más rápida
     tft.startWrite();
-    tft.setSwapBytes(true);  // RGB565 byte swap si es necesario
+    // NO swap - la cámara ya entrega en el formato correcto
     tft.pushImage(0, 0, 240, 240, (uint16_t*)buf);
     tft.endWrite();
 }
