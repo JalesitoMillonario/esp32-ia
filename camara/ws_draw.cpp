@@ -111,9 +111,9 @@ void ws_draw_set_frame_jpeg(const uint8_t* jpegBuf, size_t jpegLen){
 
     // Decodificar JPEG a RGB565 usando esp32-camera (muy rápido)
     uint8_t* rgb565_buf = nullptr;
-    size_t rgb565_len = 0;
 
-    bool ok = jpg2rgb565(jpegBuf, jpegLen, rgb565_buf, JPG_SCALE_NONE);
+    // CRÍTICO: Pasar &rgb565_buf (referencia), no rgb565_buf
+    bool ok = jpg2rgb565(jpegBuf, jpegLen, &rgb565_buf, JPG_SCALE_NONE);
 
     if(!ok || !rgb565_buf) {
         Serial.println("[ws_draw] Error decodificando JPEG");
@@ -121,10 +121,9 @@ void ws_draw_set_frame_jpeg(const uint8_t* jpegBuf, size_t jpegLen){
         return;
     }
 
-    // El tamaño debe ser 240*240*2 = 115200 bytes
-    rgb565_len = 240 * 240 * 2;
-
     // Copiar RGB565 decodificado al buffer de escritura
+    size_t rgb565_len = 240 * 240 * 2;
+
     portENTER_CRITICAL(&mux);
     memcpy(gFrameBuffer[gWriteBuffer], rgb565_buf, rgb565_len);
     gFrameReady = true;
