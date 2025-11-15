@@ -26,5 +26,8 @@ void ws_draw_set_frame(uint8_t* cameraBuf);
 // OPTIMIZADO: Usar frame directamente sin copia (más eficiente, usa el buffer de la cámara)
 void ws_draw_set_frame_direct(const uint8_t* cameraBuf, size_t len);
 
+// NUEVO: Recibir JPEG y decodificar a RGB565 para TFT
+void ws_draw_set_frame_jpeg(const uint8_t* jpegBuf, size_t jpegLen);
+
 // Compat: tu setup() llama a esto; la dejo como stub (guarda la cola si la necesitas)
 void start_ws_task(QueueHandle_t queue);

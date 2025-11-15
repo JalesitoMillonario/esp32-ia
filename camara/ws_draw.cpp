@@ -3,6 +3,7 @@
 #include "display.h"        // Tu driver TFT (tft.pushImage / drawRect / etc.)
 #include <Arduino.h>
 #include <freertos/queue.h>
+#include "esp_jpg_decode.h"  // Decodificador JPEG por hardware
 
 // ============ Estado ============
 static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -102,6 +103,36 @@ void ws_draw_set_frame_direct(const uint8_t* cameraBuf, size_t len){
     gWriteBuffer = gReadBuffer;
     gReadBuffer = temp;
     portEXIT_CRITICAL(&mux);
+}
+
+// NUEVO: Decodificar JPEG a RGB565 y copiar a double buffer
+void ws_draw_set_frame_jpeg(const uint8_t* jpegBuf, size_t jpegLen){
+    if(!jpegBuf || jpegLen == 0 || !gFrameBuffer[0] || !gFrameBuffer[1]) return;
+
+    // Decodificar JPEG a RGB565 por hardware (muy rápido)
+    uint8_t* rgb565_buf = nullptr;
+    uint32_t rgb565_len = 0;
+
+    esp_err_t err = esp_jpg_decode(jpegLen, JPG_SCALE_NONE, jpegBuf,
+                                    FRAME_SIZE, &rgb565_buf, &rgb565_len);
+
+    if(err != ESP_OK || !rgb565_buf) {
+        Serial.printf("[ws_draw] Error decodificando JPEG: 0x%x\n", err);
+        return;
+    }
+
+    // Copiar RGB565 decodificado al buffer de escritura
+    portENTER_CRITICAL(&mux);
+    memcpy(gFrameBuffer[gWriteBuffer], rgb565_buf, rgb565_len > FRAME_SIZE ? FRAME_SIZE : rgb565_len);
+    gFrameReady = true;
+    // Intercambiar buffers
+    int temp = gWriteBuffer;
+    gWriteBuffer = gReadBuffer;
+    gReadBuffer = temp;
+    portEXIT_CRITICAL(&mux);
+
+    // Liberar buffer temporal del decodificador
+    free(rgb565_buf);
 }
 
 // --- REEMPLAZA SOLO ESTA FUNCIÓN ---

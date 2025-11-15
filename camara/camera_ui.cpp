@@ -41,10 +41,10 @@ void loopTask_camera(void *pvParameters) {
     while(camera_task_flag) {
         fb = esp_camera_fb_get();
         if(fb) {
-            // 1. Copiar frame a display (rápido, double buffer en ws_draw)
-            ws_draw_set_frame_direct(fb->buf, fb->len);
+            // 1. Decodificar JPEG y mostrar en TFT (decodificación por hardware ~5ms)
+            ws_draw_set_frame_jpeg(fb->buf, fb->len);
 
-            // 2. Enviar por WebSocket de forma ASÍNCRONA (no bloquea)
+            // 2. Enviar JPEG por WebSocket (10x más pequeño: ~10KB vs 115KB)
             websocket_send_frame_async(fb->buf, fb->len);
 
             // 3. Retornar buffer a cámara inmediatamente
